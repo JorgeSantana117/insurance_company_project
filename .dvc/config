@@ -1,0 +1,5 @@
+[core]
+    remote = s3remote
+['remote "s3remote"']
+    url = s3://my-mlops-project-bucket/remote-dvc-storage-insurance-company/
+    region = us-east-2
