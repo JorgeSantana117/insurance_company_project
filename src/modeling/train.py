@@ -6,6 +6,10 @@ import pandas as pd
 import numpy as np
 import time
 
+# MLflow
+import mlflow
+import mlflow.sklearn
+
 # scikit-learn
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
@@ -59,12 +63,12 @@ def _gmean_at_threshold(y_true, y_proba, thr):
     spc = _specificity_score(y_true, y_hat) # Specificity
     return np.sqrt(rec * spc), rec, spc
 
-def _find_best_threshold(y_valid, p_valid):
+def _find_best_threshold(y_true, p_valid):
     """Finds the optimal threshold on validation data using G-Mean."""
     thresholds = np.linspace(0.01, 0.99, 99)
     gmeans = []
     for t in thresholds:
-        g, r, s = _gmean_at_threshold(y_valid, p_valid, t)
+        g, r, s = _gmean_at_threshold(y_true, p_valid, t)
         gmeans.append(g)
     
     best_idx = int(np.argmax(gmeans))
@@ -75,176 +79,208 @@ def _find_best_threshold(y_valid, p_valid):
 
 # --- 3. Model Training: Logistic Regression ---
 
-def train_logistic_regression(X_train, y_train, X_valid, y_valid, X_test, y_test, preprocessor, random_state) -> dict:
+def train_logistic_regression(X_train, y_train, X_valid, y_valid, X_test, y_test, 
+                              preprocessor, random_state, mlflow_run_name: str) -> dict:
     """
-    Trains and evaluates a Logistic Regression baseline model.
+    Trains and evaluates a Logistic Regression baseline model with MLflow tracking.
     """
-    print("\n--- Training Model 1: Logistic Regression ---")
-    start_time = time.time()
+    print(f"\n--- Training Model 1: {mlflow_run_name} ---")
     
-    # Define model
-    clf = LogisticRegression(
-        max_iter=2000,
-        class_weight="balanced", # Handle imbalance
-        solver="lbfgs",
-        random_state=random_state,
-        n_jobs=-1
-    )
-    
-    # Create full pipeline
-    pipe = Pipeline(steps=[
-        ("preprocess", preprocessor),
-        ("model", clf)
-    ])
-    
-    # Train
-    pipe.fit(X_train, y_train)
-    print(f"Training complete in {time.time() - start_time:.2f}s")
-    
-    # --- Evaluation ---
-    # Predict probabilities on validation set to find threshold
-    p_valid = pipe.predict_proba(X_valid)[:, 1]
-    best_thr, gmean_valid = _find_best_threshold(y_valid, p_valid)
-    
-    # Predict probabilities on test set
-    p_test = pipe.predict_proba(X_test)[:, 1]
-    
-    # Apply threshold
-    yhat_test = (p_test >= best_thr).astype(int)
-    gmean_test, rec_test, spc_test = _gmean_at_threshold(y_test, p_test, best_thr)
-    
-    # Compile results
-    results = {
-        "model": "Logistic Regression",
-        "best_threshold_gmean": best_thr,
-        "valid_gmean": gmean_valid,
-        "test_pr_auc": average_precision_score(y_test, p_test),
-        "test_roc_auc": roc_auc_score(y_test, p_test),
-        "test_gmean": gmean_test,
-        "test_recall (TPR)": rec_test,
-        "test_specificity (TNR)": spc_test,
-        "test_f1_score": f1_score(y_test, yhat_test),
-        "test_confusion_matrix": confusion_matrix(y_test, yhat_test, labels=[0, 1]).tolist()
-    }
-    
-    print("--- Logistic Regression Evaluation (on Test Set) ---")
-    for k, v in results.items():
-        if k == "test_confusion_matrix":
-            print(f"  {k}: \n{np.array(v)}")
-        elif isinstance(v, float):
-            print(f"  {k}: {v:.4f}")
-        else:
-            print(f"  {k}: {v}")
-            
-    return results
+    # Start MLflow run
+    with mlflow.start_run(run_name=mlflow_run_name) as run:
+        run_id = run.info.run_id
+        print(f"MLflow Run ID: {run_id}")
+        
+        start_time = time.time()
+        
+        # Define model parameters
+        model_params = {
+            "max_iter": 2000,
+            "class_weight": "balanced",
+            "solver": "lbfgs",
+            "random_state": random_state,
+            "n_jobs": -1
+        }
+        clf = LogisticRegression(**model_params)
+        
+        # Create full pipeline
+        pipe = Pipeline(steps=[
+            ("preprocess", preprocessor),
+            ("model", clf)
+        ])
+        
+        # Train
+        pipe.fit(X_train, y_train)
+        print(f"Training complete in {time.time() - start_time:.2f}s")
+        
+        # --- Evaluation ---
+        p_valid = pipe.predict_proba(X_valid)[:, 1]
+        best_thr, gmean_valid = _find_best_threshold(y_valid, p_valid)
+        
+        p_test = pipe.predict_proba(X_test)[:, 1]
+        yhat_test = (p_test >= best_thr).astype(int)
+        gmean_test, rec_test, spc_test = _gmean_at_threshold(y_test, p_test, best_thr)
+        
+        # Compile results
+        results = {
+            "model": "Logistic Regression",
+            "best_threshold_gmean": best_thr,
+            "valid_gmean": gmean_valid,
+            "test_pr_auc": average_precision_score(y_test, p_test),
+            "test_roc_auc": roc_auc_score(y_test, p_test),
+            "test_gmean": gmean_test,
+            "test_recall_TPR": rec_test,
+            "test_specificity_TNR": spc_test,
+            "test_f1_score": f1_score(y_test, yhat_test),
+            "test_confusion_matrix": confusion_matrix(y_test, yhat_test, labels=[0, 1]).tolist(),
+            "mlflow_run_id": run_id
+        }
+        
+        # --- MLflow Logging ---
+        print("Logging to MLflow...")
+        mlflow.log_param("model_type", "Logistic Regression")
+        mlflow.log_params(model_params)
+        
+        # Log all metrics
+        metrics_to_log = {k: v for k, v in results.items() if isinstance(v, (int, float))}
+        mlflow.log_metrics(metrics_to_log)
+        
+        # Log the pipeline (preprocessing + model)
+        mlflow.sklearn.log_model(pipe, "model")
+        
+        results["mlflow_model_uri"] = mlflow.get_artifact_uri("model")
+        print("--- Logistic Regression Evaluation (on Test Set) ---")
+        for k, v in results.items():
+            if k == "test_confusion_matrix":
+                print(f"  {k}: \n{np.array(v)}")
+            elif isinstance(v, float):
+                print(f"  {k}: {v:.4f}")
+            else:
+                print(f"  {k}: {v}")
+                
+        return results
 
 # --- 4. Model Training: XGBoost ---
 
-def train_xgboost(X_train, y_train, X_valid, y_valid, X_test, y_test, preprocessor, random_state) -> dict:
+def train_xgboost(X_train, y_train, X_valid, y_valid, X_test, y_test, 
+                  preprocessor, random_state, mlflow_run_name: str) -> dict:
     """
-    Trains and evaluates an XGBoost model using RandomizedSearchCV.
+    Trains and evaluates an XGBoost model using RandomizedSearchCV with MLflow tracking.
     """
-    print("\n--- Training Model 2: XGBoost w/ Hyperparameter Search ---")
-    start_time = time.time()
+    print(f"\n--- Training Model 2: {mlflow_run_name} ---")
     
-    # Calculate scale_pos_weight for imbalanced dataset
-    pos = int(y_train.sum())
-    neg = int(len(y_train) - pos)
-    ratio = neg / max(1, pos)
+    # Start MLflow run
+    with mlflow.start_run(run_name=mlflow_run_name) as run:
+        run_id = run.info.run_id
+        print(f"MLflow Run ID: {run_id}")
+        
+        start_time = time.time()
+        
+        # Calculate scale_pos_weight for imbalanced dataset
+        pos = int(y_train.sum())
+        neg = int(len(y_train) - pos)
+        ratio = neg / max(1, pos)
 
-    # Define XGBoost model
-    xgb = XGBClassifier(
-        objective="binary:logistic",
-        eval_metric="aucpr",  # PR-AUC for imbalance
-        random_state=random_state,
-        n_jobs=-1,
-        tree_method="hist",
-        enable_categorical=False
-    )
-    
-    # Create pipeline
-    pipe_xgb = Pipeline(steps=[
-        ("preprocess", preprocessor),
-        ("model", xgb)
-    ])
-    
-    # Hyperparameter search space
-    param_dist = {
-        "model__n_estimators":      [300, 500, 800, 1000],
-        "model__max_depth":         [4, 5, 6, 7],
-        "model__learning_rate":     [0.01, 0.05, 0.1],
-        "model__subsample":         [0.7, 0.8, 0.9, 1.0],
-        "model__colsample_bytree":  [0.7, 0.8, 0.9, 1.0],
-        "model__min_child_weight":  [1, 3, 5],
-        "model__gamma":             [0, 0.1, 0.3, 0.5],
-        "model__reg_alpha":         [0, 0.01, 0.1],
-        "model__reg_lambda":        [0.1, 1.0, 5.0],
-        "model__scale_pos_weight":  [1, ratio, ratio/2, np.sqrt(ratio), 10, 15]
-    }
-    
-    cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=random_state)
-    
-    # Note: n_iter is set to 10 for a quick example. The original used 167.
-    # Increase n_iter for a more thorough search.
-    search = RandomizedSearchCV(
-        estimator=pipe_xgb,
-        param_distributions=param_dist,
-        n_iter=10, # Original was 167. Using 10 for speed.
-        scoring="average_precision",
-        n_jobs=-1,
-        cv=cv,
-        refit=True,
-        verbose=1,
-        random_state=random_state
-    )
-    
-    # Search on training data
-    search.fit(X_train, y_train)
-    
-    print(f"\nRandomizedSearchCV complete in {time.time() - start_time:.2f}s")
-    print(f"Best AP (cv): {search.best_score_:.4f}")
-    print("Best Params:")
-    for k, v in search.best_params_.items():
-        print(f"  {k.replace('model__', '')}: {v}")
-    
-    best_pipe = search.best_estimator_
-    
-    # --- Evaluation ---
-    # Predict probabilities on validation set to find threshold
-    p_valid = best_pipe.predict_proba(X_valid)[:, 1]
-    best_thr, gmean_valid = _find_best_threshold(y_valid, p_valid)
-    
-    # Predict probabilities on test set
-    p_test = best_pipe.predict_proba(X_test)[:, 1]
-    
-    # Apply threshold
-    yhat_test = (p_test >= best_thr).astype(int)
-    gmean_test, rec_test, spc_test = _gmean_at_threshold(y_test, p_test, best_thr)
-    
-    # Compile results
-    results = {
-        "model": "XGBoost",
-        "best_threshold_gmean": best_thr,
-        "valid_gmean": gmean_valid,
-        "test_pr_auc": average_precision_score(y_test, p_test),
-        "test_roc_auc": roc_auc_score(y_test, p_test),
-        "test_gmean": gmean_test,
-        "test_recall (TPR)": rec_test,
-        "test_specificity (TNR)": spc_test,
-        "test_f1_score": f1_score(y_test, yhat_test),
-        "test_confusion_matrix": confusion_matrix(y_test, yhat_test, labels=[0, 1]).tolist(),
-        "best_params": search.best_params_
-    }
-    
-    print("\n--- XGBoost Evaluation (on Test Set) ---")
-    for k, v in results.items():
-        if k == "test_confusion_matrix":
-            print(f"  {k}: \n{np.array(v)}")
-        elif k == "best_params":
-            continue # Already printed
-        elif isinstance(v, float):
-            print(f"  {k}: {v:.4f}")
-        else:
-            print(f"  {k}: {v}")
-            
-    return results
+        xgb = XGBClassifier(
+            objective="binary:logistic",
+            eval_metric="aucpr",
+            random_state=random_state,
+            n_jobs=-1,
+            tree_method="hist",
+            enable_categorical=False
+        )
+        
+        pipe_xgb = Pipeline(steps=[
+            ("preprocess", preprocessor),
+            ("model", xgb)
+        ])
+        
+        # Hyperparameter search space
+        param_dist = {
+            "model__n_estimators":      [300, 500, 800, 1000],
+            "model__max_depth":         [4, 5, 6, 7],
+            "model__learning_rate":     [0.01, 0.05, 0.1],
+            "model__subsample":         [0.7, 0.8, 0.9, 1.0],
+            "model__colsample_bytree":  [0.7, 0.8, 0.9, 1.0],
+            "model__min_child_weight":  [1, 3, 5],
+            "model__gamma":             [0, 0.1, 0.3, 0.5],
+            "model__reg_alpha":         [0, 0.01, 0.1],
+            "model__reg_lambda":        [0.1, 1.0, 5.0],
+            "model__scale_pos_weight":  [1, ratio, ratio/2, np.sqrt(ratio), 10, 15]
+        }
+        
+        cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=random_state)
+        
+        # n_iter=10 for speed. Increase for a more thorough search.
+        search = RandomizedSearchCV(
+            estimator=pipe_xgb,
+            param_distributions=param_dist,
+            n_iter=10, 
+            scoring="average_precision",
+            n_jobs=-1,
+            cv=cv,
+            refit=True,
+            verbose=1,
+            random_state=random_state
+        )
+        
+        search.fit(X_train, y_train)
+        
+        print(f"\nRandomizedSearchCV complete in {time.time() - start_time:.2f}s")
+        print(f"Best AP (cv): {search.best_score_:.4f}")
+        
+        best_pipe = search.best_estimator_
+        
+        # --- Evaluation ---
+        p_valid = best_pipe.predict_proba(X_valid)[:, 1]
+        best_thr, gmean_valid = _find_best_threshold(y_valid, p_valid)
+        
+        p_test = best_pipe.predict_proba(X_test)[:, 1]
+        yhat_test = (p_test >= best_thr).astype(int)
+        gmean_test, rec_test, spc_test = _gmean_at_threshold(y_test, p_test, best_thr)
+        
+        # Compile results
+        results = {
+            "model": "XGBoost",
+            "best_threshold_gmean": best_thr,
+            "valid_gmean": gmean_valid,
+            "test_pr_auc": average_precision_score(y_test, p_test),
+            "test_roc_auc": roc_auc_score(y_test, p_test),
+            "test_gmean": gmean_test,
+            "test_recall_TPR": rec_test,
+            "test_specificity_TNR": spc_test,
+            "test_f1_score": f1_score(y_test, yhat_test),
+            "test_confusion_matrix": confusion_matrix(y_test, yhat_test, labels=[0, 1]).tolist(),
+            "best_cv_avg_precision": search.best_score_,
+            "mlflow_run_id": run_id
+        }
+
+        # --- MLflow Logging ---
+        print("Logging to MLflow...")
+        mlflow.log_param("model_type", "XGBoost")
+        
+        # Log best params, removing the 'model__' prefix
+        clean_params = {k.replace("model__", ""): v for k, v in search.best_params_.items()}
+        mlflow.log_params(clean_params)
+        
+        # Log all metrics
+        metrics_to_log = {k: v for k, v in results.items() if isinstance(v, (int, float))}
+        mlflow.log_metrics(metrics_to_log)
+
+        # Log the best pipeline (preprocessing + best model)
+        mlflow.sklearn.log_model(best_pipe, "model")
+        
+        results["mlflow_model_uri"] = mlflow.get_artifact_uri("model")
+        
+        print("\n--- XGBoost Evaluation (on Test Set) ---")
+        for k, v in results.items():
+            if k == "test_confusion_matrix":
+                print(f"  {k}: \n{np.array(v)}")
+            elif k == "best_params":
+                continue 
+            elif isinstance(v, float):
+                print(f"  {k}: {v:.4f}")
+            else:
+                print(f"  {k}: {v}")
+                
+        return results

@@ -13,6 +13,10 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # --- File Paths ---
 RAW_DATA_PATH = PROJECT_ROOT / "data" / "raw" / "insurance_company_modified.csv"
 PROCESSED_DATA_PATH = PROJECT_ROOT / "data" / "processed" / "insurance_company_cleaned_modified.csv"
+MODEL_REGISTRY_PATH = PROJECT_ROOT / "models"
+
+# --- MLflow Settings ---
+MLFLOW_EXPERIMENT_NAME = "Insurance_Company_Benchmark"
 
 # --- Global Settings ---
 RANDOM_STATE = 42
