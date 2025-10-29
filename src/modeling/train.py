@@ -137,16 +137,10 @@ def train_logistic_regression(X_train, y_train, X_valid, y_valid, X_test, y_test
         }
         
         # --- MLflow Logging ---
-        print("Logging to MLflow...")
-        mlflow.log_param("model_type", "Logistic Regression")
-        mlflow.log_params(model_params)
-        
-        # Log all metrics
+        # Autolog handles params and model artifact.
+        # We manually log our superior, threshold-tuned metrics.
         metrics_to_log = {k: v for k, v in results.items() if isinstance(v, (int, float))}
         mlflow.log_metrics(metrics_to_log)
-        
-        # Log the pipeline (preprocessing + model)
-        mlflow.sklearn.log_model(pipe, "model")
         
         results["mlflow_model_uri"] = mlflow.get_artifact_uri("model")
         print("--- Logistic Regression Evaluation (on Test Set) ---")
@@ -256,19 +250,10 @@ def train_xgboost(X_train, y_train, X_valid, y_valid, X_test, y_test,
         }
 
         # --- MLflow Logging ---
-        print("Logging to MLflow...")
-        mlflow.log_param("model_type", "XGBoost")
-        
-        # Log best params, removing the 'model__' prefix
-        clean_params = {k.replace("model__", ""): v for k, v in search.best_params_.items()}
-        mlflow.log_params(clean_params)
-        
-        # Log all metrics
+        # Autolog handles params and model artifact.
+        # We manually log our superior, threshold-tuned metrics.
         metrics_to_log = {k: v for k, v in results.items() if isinstance(v, (int, float))}
         mlflow.log_metrics(metrics_to_log)
-
-        # Log the best pipeline (preprocessing + best model)
-        mlflow.sklearn.log_model(best_pipe, "model")
         
         results["mlflow_model_uri"] = mlflow.get_artifact_uri("model")
         
