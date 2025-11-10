@@ -59,3 +59,35 @@ MLOPS project applied to Insurance Company Benchmark (COIL 2000) dataset
 
 --------
 
+PyTest
+
+Se usa Pyytest para garantizar la fiabilidad del código. Las pruebas están divididas en pruebas unitarias son rápidas, para funciones individuales y pruebas de integración para el flujo completo.
+
+Prerrequisitos
+
+python -m pip install -r requirements.txt
+
+python -m dvc pull
+
+
+Cómo Ejecutar las Pruebas
+
+Ejecutar todas las pruebas (Unitarias + Integración)
+
+Para ejecutar el conjunto completo de pruebas, utiliza el siguiente comando desde la raíz del proyecto. 
+
+python -m pytest
+
+
+Ejecutar solo las Pruebas Unitarias 
+
+Validan la lógica interna de los módulos src/.
+
+python -m pytest -m "not integration"
+
+
+Ejecutar solo la Prueba de Integración
+
+Esta prueba valida el flujo completo E2E (carga, limpieza, entrenamiento, evaluación) y requiere que los datos de DVC (dvc pull) hayan sido descargados.
+
+python -m pytest -m "integration"
