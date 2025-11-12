@@ -6,4 +6,5 @@ mkdocs
 pip
 pytest
 python-dotenv
+mlflow
 -e .
