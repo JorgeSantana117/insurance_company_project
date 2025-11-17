@@ -55,6 +55,12 @@ MLOPS project applied to Insurance Company Benchmark (COIL 2000) dataset
     │   └── train.py            <- Code to train models
     │
     └── plots.py                <- Code to create visualizations
+    │
+    └── api                     <- FastAPI service exposing the trained model
+        ├── __init__.py
+        ├── main.py             <- FastAPI application and route definitions
+        ├── service.py          <- Wrapper around the MLflow model (loading + predict)
+        └── schemas.py          <- Pydantic request/response schemas
 ```
 
 --------
