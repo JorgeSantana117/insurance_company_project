@@ -5,6 +5,8 @@ Model training, splitting, and evaluation functions.
 import pandas as pd
 import numpy as np
 import time
+import pickle
+from pathlib import Path
 
 # MLflow
 import mlflow
@@ -224,6 +226,25 @@ def train_xgboost(X_train, y_train, X_valid, y_valid, X_test, y_test,
         print(f"Best AP (cv): {search.best_score_:.4f}")
         
         best_pipe = search.best_estimator_
+
+        print("[DEBUG] About to log model to MLflow under artifact path 'model'...")
+        mlflow.sklearn.log_model(best_pipe, artifact_path="model")
+        print("[DEBUG] Model logged. Current artifact URI for 'model' is:")
+        print("        ", mlflow.get_artifact_uri("model"))
+
+        # 🔹 NUEVO: guardar también el modelo final en models/model_xgb_final.pkl
+        # project_root = carpeta raíz del repo (insurance_company_project)
+        project_root = Path(__file__).resolve().parents[2]
+        models_dir = project_root / "models"
+        models_dir.mkdir(exist_ok=True)
+
+        model_path = models_dir / "model_xgb_final.pkl"
+        with open(model_path, "wb") as f:
+            pickle.dump(best_pipe, f)
+
+        print("[DEBUG] Saved final XGBoost model to:", model_path)
+
+
         
         # --- Evaluation ---
         p_valid = best_pipe.predict_proba(X_valid)[:, 1]
