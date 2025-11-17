@@ -163,6 +163,10 @@ def train_xgboost(X_train, y_train, X_valid, y_valid, X_test, y_test,
     """
     Trains and evaluates an XGBoost model using RandomizedSearchCV with MLflow tracking.
     """
+    
+    X_test.to_parquet("../data/processed/X_test.parquet", index=False)
+    y_test.to_frame("target").to_parquet("../data/processed/y_test.parquet", index=False)
+
     print(f"\n--- Training Model 2: {mlflow_run_name} ---")
     
     # Start MLflow run
@@ -227,13 +231,9 @@ def train_xgboost(X_train, y_train, X_valid, y_valid, X_test, y_test,
         
         best_pipe = search.best_estimator_
 
-        print("[DEBUG] About to log model to MLflow under artifact path 'model'...")
         mlflow.sklearn.log_model(best_pipe, artifact_path="model")
-        print("[DEBUG] Model logged. Current artifact URI for 'model' is:")
-        print("        ", mlflow.get_artifact_uri("model"))
 
-        # 🔹 NUEVO: guardar también el modelo final en models/model_xgb_final.pkl
-        # project_root = carpeta raíz del repo (insurance_company_project)
+        # Store the final model as a binary pickle file
         project_root = Path(__file__).resolve().parents[2]
         models_dir = project_root / "models"
         models_dir.mkdir(exist_ok=True)
@@ -241,10 +241,6 @@ def train_xgboost(X_train, y_train, X_valid, y_valid, X_test, y_test,
         model_path = models_dir / "model_xgb_final.pkl"
         with open(model_path, "wb") as f:
             pickle.dump(best_pipe, f)
-
-        print("[DEBUG] Saved final XGBoost model to:", model_path)
-
-
         
         # --- Evaluation ---
         p_valid = best_pipe.predict_proba(X_valid)[:, 1]
