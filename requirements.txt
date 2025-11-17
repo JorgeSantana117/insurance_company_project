@@ -7,4 +7,9 @@ pip
 pytest
 python-dotenv
 mlflow
+fastapi
+uvicorn[standard]
+pandas
+scikit-learn
+xgboost
 -e .
